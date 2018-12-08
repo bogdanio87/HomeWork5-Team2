@@ -1,0 +1,5 @@
+Chorna	1	20
+Odynets	2	21
+Samoyl.	3	22
+Vakhula	4	23
+
