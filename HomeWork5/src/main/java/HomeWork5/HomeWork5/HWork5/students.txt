@@ -1,5 +1,8 @@
-Chorna	1	20
+Chorna	5	20
 Odynets	2	21
 Samoyl.	3	22
 Vakhula	4	23
+Aggggg  2 52
+Xrrrr   3 22
+Zaaaa   2 25
 
