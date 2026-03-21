@@ -114,8 +114,9 @@ class PolymarketBot:
             return
 
         for order in orders:
-            # Resize order to fit current risk limits if needed
-            max_pos = self.risk_manager.total_equity * self.risk_manager.risk["max_position_pct"]
+            # Resize order to fit current risk limits (with 2% buffer for
+            # float rounding and equity fluctuations between checks)
+            max_pos = self.risk_manager.total_equity * self.risk_manager.risk["max_position_pct"] * 0.98
             cost = order["size"] * order["price"]
             if cost > max_pos and order["price"] > 0:
                 order["size"] = int(max_pos / order["price"])

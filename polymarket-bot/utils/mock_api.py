@@ -120,16 +120,16 @@ class MockPolymarketAPI:
         if token_id not in self._price_drift:
             self._price_drift[token_id] = 0.0
 
-        # Random walk step each call — larger moves simulate real markets
-        step = random.gauss(0, 0.008)
-        # Occasional larger moves (news events)
-        if random.random() < 0.05:
-            step += random.choice([-1, 1]) * random.uniform(0.03, 0.08)
+        # Random walk step each call — sized to trigger stop-losses
+        step = random.gauss(0, 0.015)
+        # Occasional larger moves (news events) — 10% chance
+        if random.random() < 0.10:
+            step += random.choice([-1, 1]) * random.uniform(0.04, 0.12)
 
         self._price_drift[token_id] += step
 
-        # Mean-revert slightly to avoid extreme drift
-        self._price_drift[token_id] *= 0.995
+        # Gentle mean-reversion to avoid extreme drift
+        self._price_drift[token_id] *= 0.998
 
         drifted = base_price + self._price_drift[token_id]
         return round(max(0.01, min(0.99, drifted)), 3)
