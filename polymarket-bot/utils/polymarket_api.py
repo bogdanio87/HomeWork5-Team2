@@ -6,7 +6,7 @@ Handles market data retrieval, order placement, and position management.
 import time
 import requests
 from typing import Optional
-from config.settings import CLOB_API_URL, GAMMA_API_URL, POLY_API_KEY, POLY_API_SECRET, POLY_PASSPHRASE
+from config.settings import CLOB_API_URL, GAMMA_API_URL, POLY_API_KEY, POLY_API_SECRET, POLY_PASSPHRASE, PROXY_URL
 from utils.logger import log
 
 
@@ -17,6 +17,12 @@ class PolymarketAPI:
         self.clob_url = CLOB_API_URL
         self.gamma_url = GAMMA_API_URL
         self.session = requests.Session()
+        if PROXY_URL:
+            self.session.proxies = {
+                "http": PROXY_URL,
+                "https": PROXY_URL,
+            }
+            log.info(f"Using proxy: {PROXY_URL.split('@')[-1] if '@' in PROXY_URL else PROXY_URL}")
         self.session.headers.update({
             "Content-Type": "application/json",
         })

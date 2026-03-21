@@ -9,6 +9,18 @@ POLY_API_SECRET = os.getenv("POLY_API_SECRET", "")
 POLY_PASSPHRASE = os.getenv("POLY_PASSPHRASE", "")
 PRIVATE_KEY = os.getenv("PRIVATE_KEY", "")
 
+# Proxy configuration (for geo-restricted access)
+PROXY_HOST = os.getenv("PROXY_HOST", "")
+PROXY_PORT = os.getenv("PROXY_PORT", "")
+PROXY_USER = os.getenv("PROXY_USER", "")
+PROXY_PASS = os.getenv("PROXY_PASS", "")
+PROXY_URL = ""
+if PROXY_HOST and PROXY_PORT:
+    if PROXY_USER and PROXY_PASS:
+        PROXY_URL = f"http://{PROXY_USER}:{PROXY_PASS}@{PROXY_HOST}:{PROXY_PORT}"
+    else:
+        PROXY_URL = f"http://{PROXY_HOST}:{PROXY_PORT}"
+
 # Polymarket API endpoints
 CLOB_API_URL = "https://clob.polymarket.com"
 GAMMA_API_URL = "https://gamma-api.polymarket.com"
