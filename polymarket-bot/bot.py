@@ -114,15 +114,6 @@ class PolymarketBot:
             return
 
         for order in orders:
-            # Resize order to fit current risk limits (with 2% buffer for
-            # float rounding and equity fluctuations between checks)
-            max_pos = self.risk_manager.total_equity * self.risk_manager.risk["max_position_pct"] * 0.98
-            cost = order["size"] * order["price"]
-            if cost > max_pos and order["price"] > 0:
-                order["size"] = int(max_pos / order["price"])
-                if order["size"] < 1:
-                    continue
-
             # On Polymarket you can only buy tokens (YES or NO), not sell
             # without holding inventory. Skip any SELL orders from strategies.
             if order.get("side", "").upper() == "SELL":
@@ -130,7 +121,14 @@ class PolymarketBot:
                          f"no inventory on Polymarket")
                 continue
 
-            # Risk check
+            # Cap position size to fit within max position limit
+            order["size"] = self.risk_manager.cap_position_size(
+                order["size"], order["price"]
+            )
+            if order["size"] < 1:
+                continue
+
+            # Risk check (balance, drawdown, max positions, daily loss)
             can_trade, reason = self.risk_manager.can_open_position(
                 order["size"], order["price"]
             )

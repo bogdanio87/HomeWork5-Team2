@@ -85,11 +85,6 @@ class RiskManager:
         if self.open_position_count >= self.risk["max_open_positions"]:
             return False, f"Max positions reached ({self.risk['max_open_positions']})"
 
-        # Check position size limit
-        max_pos = self.total_equity * self.risk["max_position_pct"]
-        if cost > max_pos:
-            return False, f"Position too large: ${cost:.2f} > max ${max_pos:.2f}"
-
         # Check available balance
         if cost > self.portfolio.balance:
             return False, f"Insufficient balance: ${self.portfolio.balance:.2f}"
@@ -104,6 +99,14 @@ class RiskManager:
             return False, f"Max drawdown reached: {drawdown:.1%}"
 
         return True, "OK"
+
+    def cap_position_size(self, size: int, price: float) -> int:
+        """Cap position size to fit within max position limit."""
+        if price <= 0:
+            return 0
+        max_pos = self.total_equity * self.risk["max_position_pct"]
+        max_size = int(max_pos / price)
+        return min(size, max_size)
 
     def calculate_position_size(self, price: float, edge: float,
                                  win_probability: float = 0.55) -> int:
