@@ -122,6 +122,12 @@ class PolymarketBot:
                 if order["size"] < 1:
                     continue
 
+            # On Polymarket you can only buy tokens (YES or NO), not sell
+            # without holding inventory. Skip any SELL orders from strategies.
+            if order["side"] == "SELL":
+                log.debug(f"Skipping SELL order — no inventory to sell on Polymarket")
+                continue
+
             # Risk check
             can_trade, reason = self.risk_manager.can_open_position(
                 order["size"], order["price"]
@@ -133,7 +139,8 @@ class PolymarketBot:
             if self.dry_run:
                 log.info(f"[DRY RUN] Would place: {order['side']} {order['size']} "
                          f"@ ${order['price']:.3f} ({strategy_name})")
-                # Simulate order fill for dry run
+                # Simulate order fill for dry run (skip_risk_check=True
+                # because we already verified above)
                 self.risk_manager.open_position(
                     token_id=order["token_id"],
                     market_name=opportunity.get("market", "Unknown"),
@@ -143,6 +150,7 @@ class PolymarketBot:
                     strategy=strategy_name,
                     stop_loss=order.get("stop_loss", 0),
                     take_profit=order.get("take_profit", 0),
+                    skip_risk_check=True,
                 )
             else:
                 result = self.api.place_order(order)
@@ -158,6 +166,7 @@ class PolymarketBot:
                         stop_loss=order.get("stop_loss", 0),
                         take_profit=order.get("take_profit", 0),
                         order_id=order_id,
+                        skip_risk_check=True,
                     )
                 else:
                     log.error(f"Failed to place order for {opportunity.get('market', '')[:40]}")

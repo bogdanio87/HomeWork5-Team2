@@ -137,12 +137,14 @@ class RiskManager:
     def open_position(self, token_id: str, market_name: str, side: str,
                        entry_price: float, size: int, strategy: str,
                        stop_loss: float = 0, take_profit: float = 0,
-                       order_id: str = "") -> bool:
+                       order_id: str = "",
+                       skip_risk_check: bool = False) -> bool:
         """Record a new open position."""
-        can_open, reason = self.can_open_position(size, entry_price)
-        if not can_open:
-            log.warning(f"Cannot open position: {reason}")
-            return False
+        if not skip_risk_check:
+            can_open, reason = self.can_open_position(size, entry_price)
+            if not can_open:
+                log.warning(f"Cannot open position: {reason}")
+                return False
 
         cost = size * entry_price
         if side == "BUY":
