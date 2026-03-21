@@ -109,8 +109,30 @@ class MockPolymarketAPI:
     def __init__(self):
         self._rate_limit_delay = 0
         self._trade_counter = 0
+        self._price_drift = {}  # token_id -> cumulative drift
+        self._start_time = time.time()
         log.info("MockPolymarketAPI initialized with %d demo markets",
                  len(MOCK_MARKETS))
+
+    def _get_drifted_price(self, token_id, base_price):
+        """Simulate realistic price drift over time using random walk."""
+        now = time.time()
+        if token_id not in self._price_drift:
+            self._price_drift[token_id] = 0.0
+
+        # Random walk step each call — larger moves simulate real markets
+        step = random.gauss(0, 0.008)
+        # Occasional larger moves (news events)
+        if random.random() < 0.05:
+            step += random.choice([-1, 1]) * random.uniform(0.03, 0.08)
+
+        self._price_drift[token_id] += step
+
+        # Mean-revert slightly to avoid extreme drift
+        self._price_drift[token_id] *= 0.995
+
+        drifted = base_price + self._price_drift[token_id]
+        return round(max(0.01, min(0.99, drifted)), 3)
 
     # ── Market Data ──────────────────────────────────────────
 
@@ -134,6 +156,7 @@ class MockPolymarketAPI:
         price = self._find_token_price(token_id)
         if price is None:
             return None
+        price = self._get_drifted_price(token_id, price)
 
         bids = []
         asks = []
@@ -152,26 +175,32 @@ class MockPolymarketAPI:
 
     def get_midpoint(self, token_id):
         price = self._find_token_price(token_id)
-        return _jitter(price) if price else None
+        if price is None:
+            return None
+        return self._get_drifted_price(token_id, price)
 
     def get_price(self, token_id, side="buy"):
         price = self._find_token_price(token_id)
         if price is None:
             return None
+        drifted = self._get_drifted_price(token_id, price)
         if side == "buy":
-            return round(min(0.99, price + 0.005), 3)
-        return round(max(0.01, price - 0.005), 3)
+            return round(min(0.99, drifted + 0.005), 3)
+        return round(max(0.01, drifted - 0.005), 3)
 
     def get_spread(self, token_id):
         price = self._find_token_price(token_id)
         if price is None:
             return None
+        drifted = self._get_drifted_price(token_id, price)
         spread = round(random.uniform(0.01, 0.04), 3)
-        return {"spread": str(spread), "mid": str(price)}
+        return {"spread": str(spread), "mid": str(drifted)}
 
     def get_last_trade_price(self, token_id):
         price = self._find_token_price(token_id)
-        return _jitter(price) if price else None
+        if price is None:
+            return None
+        return self._get_drifted_price(token_id, price)
 
     # ── Trading ──────────────────────────────────────────────
 
@@ -181,13 +210,16 @@ class MockPolymarketAPI:
         if price is None:
             return []
 
+        # Use drifted price as current price for trade history
+        current_price = self._get_drifted_price(token_id, price)
+
         # Create a realistic trade history with a trend
         trades = []
         trend = random.choice([-1, 1]) * random.uniform(0.001, 0.004)
         now = int(time.time())
 
         for i in range(min(limit, 20)):
-            t_price = price - trend * i + random.uniform(-0.005, 0.005)
+            t_price = current_price - trend * i + random.uniform(-0.005, 0.005)
             t_price = round(max(0.01, min(0.99, t_price)), 3)
             trades.append({
                 "price": str(t_price),
