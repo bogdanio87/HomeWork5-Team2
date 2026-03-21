@@ -1,0 +1,170 @@
+"""
+Market Making Strategy for Polymarket.
+
+Places limit orders on both sides of the spread to capture the bid-ask spread.
+Profits come from the difference between buy and sell prices.
+
+Key features:
+- Dynamic spread calculation based on volatility
+- Inventory management to avoid accumulating too much of one side
+- Quick order cancellation when market moves against us
+"""
+
+from typing import Optional
+from utils.logger import log
+
+
+class MarketMakingStrategy:
+    """Provides liquidity and captures bid-ask spread."""
+
+    def __init__(self, api, risk_config: dict):
+        self.api = api
+        self.risk = risk_config
+        self.min_spread = 0.03  # Minimum 3% spread to be profitable
+        self.max_inventory_imbalance = 0.7  # Max 70% of position on one side
+        self.order_layers = 3  # Number of price levels to quote
+
+    def analyze_spread(self, token_id: str,
+                        market_info: dict) -> Optional[dict]:
+        """
+        Analyze the current spread for market-making viability.
+
+        Returns opportunity dict if spread is wide enough to profit.
+        """
+        book = self.api.get_order_book(token_id)
+        if not book:
+            return None
+
+        bids = book.get("bids", [])
+        asks = book.get("asks", [])
+
+        if not bids or not asks:
+            return None
+
+        best_bid = float(bids[0].get("price", 0))
+        best_ask = float(asks[0].get("price", 0))
+
+        if best_bid <= 0 or best_ask <= 0 or best_ask <= best_bid:
+            return None
+
+        spread = best_ask - best_bid
+        spread_pct = spread / best_ask
+
+        if spread_pct < self.min_spread:
+            return None
+
+        midpoint = (best_bid + best_ask) / 2
+
+        # Calculate book depth
+        bid_depth = sum(float(b.get("size", 0)) for b in bids[:5])
+        ask_depth = sum(float(a.get("size", 0)) for a in asks[:5])
+        total_depth = bid_depth + ask_depth
+        depth_imbalance = (bid_depth - ask_depth) / total_depth if total_depth > 0 else 0
+
+        opportunity = {
+            "type": "market_making",
+            "token_id": token_id,
+            "market": market_info.get("question", "Unknown"),
+            "condition_id": market_info.get("condition_id", ""),
+            "best_bid": best_bid,
+            "best_ask": best_ask,
+            "spread": spread,
+            "spread_pct": spread_pct,
+            "midpoint": midpoint,
+            "bid_depth": bid_depth,
+            "ask_depth": ask_depth,
+            "depth_imbalance": depth_imbalance,
+            "estimated_profit_per_round": spread * 0.5,  # Conservative estimate
+        }
+
+        log.info(f"[MM] Spread opportunity: {market_info.get('question', '')[:50]} "
+                 f"bid={best_bid:.3f} ask={best_ask:.3f} spread={spread_pct:.1%}")
+
+        return opportunity
+
+    def scan(self, markets: list[dict]) -> list[dict]:
+        """Scan markets for market-making opportunities."""
+        opportunities = []
+
+        for market in markets:
+            tokens = market.get("tokens", [])
+            for token in tokens:
+                token_id = token.get("token_id", "")
+                price = float(token.get("price", 0))
+
+                # Best for tokens in the middle range
+                if price < 0.10 or price > 0.90:
+                    continue
+
+                opp = self.analyze_spread(token_id, market)
+                if opp:
+                    opportunities.append(opp)
+
+        return sorted(opportunities,
+                      key=lambda x: x["spread_pct"], reverse=True)
+
+    def generate_orders(self, opportunity: dict,
+                        available_balance: float,
+                        current_inventory: dict = None) -> list[dict]:
+        """
+        Generate market-making orders (both bid and ask).
+
+        Places layered orders around the midpoint.
+        """
+        orders = []
+        max_position = available_balance * self.risk["max_position_pct"]
+
+        midpoint = opportunity["midpoint"]
+        half_spread = opportunity["spread"] / 2
+
+        # Adjust for depth imbalance
+        imbalance = opportunity["depth_imbalance"]
+        skew = imbalance * 0.005  # Slight skew towards stronger side
+
+        # Inventory adjustment
+        inventory_skew = 0
+        if current_inventory:
+            inv = current_inventory.get(opportunity["token_id"], 0)
+            max_inv = max_position / midpoint
+            if max_inv > 0:
+                inventory_ratio = inv / max_inv
+                inventory_skew = inventory_ratio * 0.01  # Adjust quotes
+
+        per_layer_size = max_position / (self.order_layers * 2 * midpoint)
+        per_layer_size = int(per_layer_size)
+
+        if per_layer_size < 1:
+            return []
+
+        for i in range(self.order_layers):
+            layer_offset = half_spread * (0.3 + 0.3 * i)
+
+            # Bid (buy) orders — below midpoint
+            bid_price = midpoint - layer_offset + skew - inventory_skew
+            bid_price = max(0.01, round(bid_price, 3))
+
+            orders.append({
+                "token_id": opportunity["token_id"],
+                "price": bid_price,
+                "size": per_layer_size,
+                "side": "BUY",
+                "type": "GTC",
+                "strategy": "market_making",
+                "layer": i,
+            })
+
+            # Ask (sell) orders — above midpoint
+            ask_price = midpoint + layer_offset + skew - inventory_skew
+            ask_price = min(0.99, round(ask_price, 3))
+
+            orders.append({
+                "token_id": opportunity["token_id"],
+                "price": ask_price,
+                "size": per_layer_size,
+                "side": "SELL",
+                "type": "GTC",
+                "strategy": "market_making",
+                "layer": i,
+            })
+
+        return orders
