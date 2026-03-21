@@ -93,9 +93,10 @@ class RiskManager:
         if self.portfolio.daily_pnl <= -self.max_daily_loss:
             return False, f"Daily loss limit reached: ${self.portfolio.daily_pnl:.2f}"
 
-        # Max drawdown check (25% from peak)
+        # Max drawdown check
+        max_drawdown = self.risk.get("max_drawdown", 0.25)
         drawdown = (self.portfolio.peak_balance - self.total_equity) / self.portfolio.peak_balance
-        if drawdown > 0.25:
+        if drawdown > max_drawdown:
             return False, f"Max drawdown reached: {drawdown:.1%}"
 
         return True, "OK"

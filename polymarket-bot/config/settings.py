@@ -44,6 +44,7 @@ RISK_PROFILES = {
         "stop_loss": 0.05,
         "take_profit": 0.15,
         "kelly_fraction": 0.25,
+        "max_drawdown": 0.15,
     },
     "moderate": {
         "max_position_pct": 0.10,
@@ -52,6 +53,7 @@ RISK_PROFILES = {
         "stop_loss": 0.08,
         "take_profit": 0.25,
         "kelly_fraction": 0.50,
+        "max_drawdown": 0.25,
     },
     "aggressive": {
         "max_position_pct": 0.20,
@@ -60,6 +62,7 @@ RISK_PROFILES = {
         "stop_loss": 0.10,
         "take_profit": 0.35,
         "kelly_fraction": 0.75,
+        "max_drawdown": 0.40,
     },
 }
 
