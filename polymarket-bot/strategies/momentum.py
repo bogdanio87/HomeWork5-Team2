@@ -184,8 +184,8 @@ class MomentumStrategy:
                 "side": "BUY",
                 "type": "GTC",
                 "strategy": "momentum",
-                "stop_loss": price * (1 - self.risk["stop_loss"]),
-                "take_profit": price * (1 + self.risk["take_profit"]),
+                "stop_loss": max(0.01, price * (1 - self.risk["stop_loss"])),
+                "take_profit": min(0.99, price * (1 + self.risk["take_profit"])),
             })
         else:
             # Price going down — buy the complementary token (e.g., NO if YES drops)
@@ -206,8 +206,8 @@ class MomentumStrategy:
                 "side": "BUY",
                 "type": "GTC",
                 "strategy": "momentum",
-                "stop_loss": complement_price * (1 - self.risk["stop_loss"]),
-                "take_profit": complement_price * (1 + self.risk["take_profit"]),
+                "stop_loss": max(0.01, complement_price * (1 - self.risk["stop_loss"])),
+                "take_profit": min(0.99, complement_price * (1 + self.risk["take_profit"])),
             })
 
         return orders

@@ -162,6 +162,10 @@ class RiskManager:
             take_profit = (entry_price * (1 + self.risk["take_profit"]) if side == "BUY"
                            else entry_price * (1 - self.risk["take_profit"]))
 
+        # Polymarket prices are bounded 0.01-0.99
+        stop_loss = max(0.01, min(0.99, stop_loss))
+        take_profit = max(0.01, min(0.99, take_profit))
+
         position = Position(
             token_id=token_id,
             market_name=market_name,
