@@ -107,7 +107,7 @@ class PolymarketBot:
         if not strategy:
             return
 
-        balance = self.risk_manager.portfolio.balance
+        balance = self.risk_manager.total_equity
         orders = strategy.generate_orders(opportunity, balance)
 
         if not orders:
@@ -161,31 +161,27 @@ class PolymarketBot:
 
         tokens_to_close = self.risk_manager.check_stop_losses(self.api)
 
-        for token_id in tokens_to_close:
-            current_price = self.api.get_midpoint(token_id)
-            if current_price is None:
-                continue
-
+        for token_id, trigger_price in tokens_to_close:
             position = self.risk_manager.portfolio.positions.get(token_id)
             if not position:
                 continue
 
             if self.dry_run:
                 log.info(f"[DRY RUN] Would close position {token_id[:16]} "
-                         f"@ ${current_price:.3f}")
-                self.risk_manager.close_position(token_id, current_price)
+                         f"@ ${trigger_price:.3f}")
+                self.risk_manager.close_position(token_id, trigger_price)
             else:
                 # Place market order to close
                 close_order = {
                     "token_id": token_id,
-                    "price": current_price,
+                    "price": trigger_price,
                     "size": position.size,
                     "side": "SELL" if position.side == "BUY" else "BUY",
                     "type": "FOK",
                 }
                 result = self.api.place_order(close_order)
                 if result:
-                    self.risk_manager.close_position(token_id, current_price)
+                    self.risk_manager.close_position(token_id, trigger_price)
 
     def daily_reset(self):
         """Check if we need to reset daily P&L counters."""

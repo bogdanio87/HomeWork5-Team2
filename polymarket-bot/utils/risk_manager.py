@@ -211,8 +211,12 @@ class RiskManager:
         del self.portfolio.positions[token_id]
         return pnl
 
-    def check_stop_losses(self, api) -> list[str]:
-        """Check all positions for stop-loss or take-profit triggers."""
+    def check_stop_losses(self, api) -> list[tuple[str, float]]:
+        """Check all positions for stop-loss or take-profit triggers.
+
+        Returns list of (token_id, trigger_price) tuples so the caller
+        can close at the same price that triggered the stop.
+        """
         to_close = []
 
         for token_id, position in list(self.portfolio.positions.items()):
@@ -243,7 +247,7 @@ class RiskManager:
             if should_close:
                 log.info(f"[RISK] {reason} triggered for {position.market_name[:40]}: "
                          f"price={current_price:.3f}")
-                to_close.append(token_id)
+                to_close.append((token_id, current_price))
 
         return to_close
 
