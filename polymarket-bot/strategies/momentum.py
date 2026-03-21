@@ -38,6 +38,15 @@ class MomentumStrategy:
         if len(trades) < 5:
             return None
 
+        # Sort trades by timestamp descending (newest first)
+        for trade in trades:
+            ts = trade.get("timestamp", 0)
+            if isinstance(ts, str):
+                trade["_ts"] = int(ts) if ts.isdigit() else 0
+            else:
+                trade["_ts"] = int(ts)
+        trades.sort(key=lambda t: t["_ts"], reverse=True)
+
         prices = []
         volumes = []
         timestamps = []
@@ -45,10 +54,7 @@ class MomentumStrategy:
         for trade in trades:
             prices.append(float(trade.get("price", 0)))
             volumes.append(float(trade.get("size", 0)))
-            ts = trade.get("timestamp", 0)
-            if isinstance(ts, str):
-                ts = int(ts) if ts.isdigit() else 0
-            timestamps.append(ts)
+            timestamps.append(trade["_ts"])
 
         if not prices or max(prices) == 0:
             return None
@@ -90,9 +96,22 @@ class MomentumStrategy:
 
         direction = "UP" if price_velocity > 0 else "DOWN"
 
+        # Find the complementary token for binary markets
+        complement_token_id = ""
+        complement_price = 0.0
+        tokens = market_info.get("tokens", [])
+        if len(tokens) == 2:
+            for token in tokens:
+                if token.get("token_id", "") != token_id:
+                    complement_token_id = token.get("token_id", "")
+                    complement_price = float(token.get("price", 0))
+                    break
+
         signal = {
             "type": "momentum",
             "token_id": token_id,
+            "complement_token_id": complement_token_id,
+            "complement_price": complement_price,
             "market": market_info.get("question", "Unknown"),
             "condition_id": market_info.get("condition_id", ""),
             "current_price": current_price,
@@ -169,16 +188,26 @@ class MomentumStrategy:
                 "take_profit": price * (1 + self.risk["take_profit"]),
             })
         else:
-            # Price going down — sell / short if we hold, or buy the opposite
+            # Price going down — buy the complementary token (e.g., NO if YES drops)
+            # On Polymarket you can't sell tokens you don't hold
+            complement_id = signal.get("complement_token_id", "")
+            complement_price = signal.get("complement_price", 0)
+            if not complement_id or complement_price <= 0:
+                return []
+
+            comp_shares = int(position_size / complement_price) if complement_price > 0 else 0
+            if comp_shares < 1:
+                return []
+
             orders.append({
-                "token_id": signal["token_id"],
-                "price": max(price * 0.995, 0.01),
-                "size": num_shares,
-                "side": "SELL",
+                "token_id": complement_id,
+                "price": min(complement_price * 1.005, 0.99),
+                "size": comp_shares,
+                "side": "BUY",
                 "type": "GTC",
                 "strategy": "momentum",
-                "stop_loss": price * (1 + self.risk["stop_loss"]),
-                "take_profit": price * (1 - self.risk["take_profit"]),
+                "stop_loss": complement_price * (1 - self.risk["stop_loss"]),
+                "take_profit": complement_price * (1 + self.risk["take_profit"]),
             })
 
         return orders

@@ -88,6 +88,12 @@ class MarketMakingStrategy:
 
         for market in markets:
             tokens = market.get("tokens", [])
+            # Build a token_id -> complement mapping for binary markets
+            complement_map = {}
+            if len(tokens) == 2:
+                complement_map[tokens[0].get("token_id", "")] = tokens[1].get("token_id", "")
+                complement_map[tokens[1].get("token_id", "")] = tokens[0].get("token_id", "")
+
             for token in tokens:
                 token_id = token.get("token_id", "")
                 price = float(token.get("price", 0))
@@ -98,6 +104,7 @@ class MarketMakingStrategy:
 
                 opp = self.analyze_spread(token_id, market)
                 if opp:
+                    opp["complement_token_id"] = complement_map.get(token_id, "")
                     opportunities.append(opp)
 
         return sorted(opportunities,
@@ -107,15 +114,18 @@ class MarketMakingStrategy:
                         available_balance: float,
                         current_inventory: dict = None) -> list[dict]:
         """
-        Generate market-making orders (both bid and ask).
+        Generate market-making orders using both sides of a binary market.
 
-        Places layered orders around the midpoint.
+        On Polymarket you can't sell tokens you don't hold, so instead of
+        placing ask orders on the same token, we place BUY orders on the
+        complementary token (e.g., buy NO when we'd normally sell YES).
         """
         orders = []
         max_position = available_balance * self.risk["max_position_pct"]
 
         midpoint = opportunity["midpoint"]
         half_spread = opportunity["spread"] / 2
+        complement_id = opportunity.get("complement_token_id", "")
 
         # Adjust for depth imbalance
         imbalance = opportunity["depth_imbalance"]
@@ -139,7 +149,7 @@ class MarketMakingStrategy:
         for i in range(self.order_layers):
             layer_offset = half_spread * (0.3 + 0.3 * i)
 
-            # Bid (buy) orders — below midpoint
+            # Bid (buy) orders — below midpoint for this token
             bid_price = midpoint - layer_offset + skew - inventory_skew
             bid_price = max(0.01, round(bid_price, 3))
 
@@ -153,18 +163,22 @@ class MarketMakingStrategy:
                 "layer": i,
             })
 
-            # Ask (sell) orders — above midpoint
-            ask_price = midpoint + layer_offset + skew - inventory_skew
-            ask_price = min(0.99, round(ask_price, 3))
+            # Instead of selling this token (requires inventory), buy the
+            # complementary token at a discounted price.
+            # If YES midpoint is M, complement (NO) fair value ~ 1-M.
+            if complement_id:
+                comp_fair = 1.0 - midpoint
+                comp_bid = comp_fair - layer_offset - skew + inventory_skew
+                comp_bid = max(0.01, round(comp_bid, 3))
 
-            orders.append({
-                "token_id": opportunity["token_id"],
-                "price": ask_price,
-                "size": per_layer_size,
-                "side": "SELL",
-                "type": "GTC",
-                "strategy": "market_making",
-                "layer": i,
-            })
+                orders.append({
+                    "token_id": complement_id,
+                    "price": comp_bid,
+                    "size": per_layer_size,
+                    "side": "BUY",
+                    "type": "GTC",
+                    "strategy": "market_making",
+                    "layer": i,
+                })
 
         return orders

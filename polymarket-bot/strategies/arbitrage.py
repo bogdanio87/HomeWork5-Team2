@@ -179,7 +179,13 @@ class ArbitrageStrategy:
                 if opportunity.get("sell_side") == "YES"
                 else opportunity.get("no_token_id", "")
             )
-            sell_price = opportunity.get("sell_price") or opportunity.get("yes_price", 0)
+            # Use the correct price for the side being sold
+            if opportunity.get("sell_price"):
+                sell_price = opportunity["sell_price"]
+            elif opportunity.get("sell_side") == "YES":
+                sell_price = opportunity.get("yes_price", 0)
+            else:
+                sell_price = opportunity.get("no_price", 0)
             size = int(max_position / sell_price) if sell_price > 0 else 0
 
             if size >= 1 and sell_token:
