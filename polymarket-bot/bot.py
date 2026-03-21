@@ -114,6 +114,14 @@ class PolymarketBot:
             return
 
         for order in orders:
+            # Resize order to fit current risk limits if needed
+            max_pos = self.risk_manager.total_equity * self.risk_manager.risk["max_position_pct"]
+            cost = order["size"] * order["price"]
+            if cost > max_pos and order["price"] > 0:
+                order["size"] = int(max_pos / order["price"])
+                if order["size"] < 1:
+                    continue
+
             # Risk check
             can_trade, reason = self.risk_manager.can_open_position(
                 order["size"], order["price"]
