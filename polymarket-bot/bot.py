@@ -31,8 +31,9 @@ from strategies.market_making import MarketMakingStrategy
 class PolymarketBot:
     """Main trading bot that orchestrates strategies and risk management."""
 
-    def __init__(self, strategy: str = "combined", dry_run: bool = False):
-        self.api = PolymarketAPI()
+    def __init__(self, strategy: str = "combined", dry_run: bool = False,
+                 api_class=None):
+        self.api = (api_class or PolymarketAPI)()
         self.risk_manager = RiskManager(RISK, INITIAL_BALANCE, MAX_DAILY_LOSS)
         self.dry_run = dry_run
         self.running = False
@@ -265,6 +266,8 @@ def main():
                         help="Trading strategy to use")
     parser.add_argument("--dry-run", action="store_true",
                         help="Run in simulation mode without placing real orders")
+    parser.add_argument("--demo", action="store_true",
+                        help="Run with mock market data (no API needed)")
     parser.add_argument("--balance", type=float, default=INITIAL_BALANCE,
                         help="Starting balance in USDC")
     args = parser.parse_args()
@@ -273,7 +276,15 @@ def main():
         import config.settings as settings
         settings.INITIAL_BALANCE = args.balance
 
-    bot = PolymarketBot(strategy=args.strategy, dry_run=args.dry_run)
+    api_class = None
+    if args.demo:
+        args.dry_run = True
+        from utils.mock_api import MockPolymarketAPI
+        api_class = MockPolymarketAPI
+        log.info("DEMO MODE: Using mock market data")
+
+    bot = PolymarketBot(strategy=args.strategy, dry_run=args.dry_run,
+                        api_class=api_class)
     bot.run()
 
 

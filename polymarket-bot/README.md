@@ -21,6 +21,7 @@ polymarket-bot/
 │   └── market_making.py        # Spread capture with layered orders
 ├── utils/
 │   ├── polymarket_api.py       # Polymarket CLOB & Gamma API client
+│   ├── mock_api.py             # Mock API for demo mode (no internet needed)
 │   ├── risk_manager.py         # Position sizing, stop-loss, portfolio tracking
 │   └── logger.py               # Logging setup
 ├── .env.example                # Environment variables template
@@ -80,6 +81,9 @@ python bot.py --strategy momentum --dry-run
 
 # Live trading (USE WITH CAUTION)
 python bot.py --strategy combined
+
+# Demo mode — uses mock data, no API connection needed
+python bot.py --demo
 
 # Custom starting balance
 python bot.py --balance 500 --dry-run
