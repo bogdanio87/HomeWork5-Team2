@@ -125,8 +125,9 @@ class PolymarketBot:
 
             # On Polymarket you can only buy tokens (YES or NO), not sell
             # without holding inventory. Skip any SELL orders from strategies.
-            if order["side"] == "SELL":
-                log.debug(f"Skipping SELL order — no inventory to sell on Polymarket")
+            if order.get("side", "").upper() == "SELL":
+                log.info(f"Blocked SELL order from {strategy_name} — "
+                         f"no inventory on Polymarket")
                 continue
 
             # Risk check
