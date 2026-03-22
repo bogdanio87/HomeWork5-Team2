@@ -38,9 +38,9 @@ STRATEGY = os.getenv("STRATEGY", "combined")
 # Risk levels configuration
 RISK_PROFILES = {
     "conservative": {
-        "max_position_pct": 0.05,
-        "max_open_positions": 3,
-        "min_edge": 0.03,
+        "max_position_pct": 0.10,
+        "max_open_positions": 5,
+        "min_edge": 0.004,
         "stop_loss": 0.05,
         "take_profit": 0.15,
         "kelly_fraction": 0.25,
