@@ -48,10 +48,10 @@ class PolymarketAPI:
         })
         self._rate_limit_delay = 0.05  # 50ms between requests
 
-        # py-clob-client uses httpx internally, but httpx proxy support
-        # is incompatible with many HTTP proxies (ConnectTimeout).
-        # Monkey-patch its HTTP helpers to use our requests.Session instead.
-        if PROXY_URL:
+        # py-clob-client uses httpx internally, which can have compatibility
+        # issues with some environments. Monkey-patch its HTTP helpers to use
+        # our requests.Session instead (also needed for proxy support).
+        if True:
             try:
                 import py_clob_client.http_helpers.helpers as _helpers
                 _session = self.session  # capture for closure
@@ -88,7 +88,7 @@ class PolymarketAPI:
                 _helpers.get = lambda ep, headers=None, data=None: _patched_request(ep, "GET", headers, data)
                 _helpers.delete = lambda ep, headers=None, data=None: _patched_request(ep, "DELETE", headers, data)
                 _helpers.put = lambda ep, headers=None, data=None: _patched_request(ep, "PUT", headers, data)
-                log.info("Patched py-clob-client to use proxied requests.Session")
+                log.info("Patched py-clob-client to use requests.Session")
             except Exception as e:
                 log.warning(f"Could not patch py-clob-client HTTP helpers: {e}")
 
