@@ -7,7 +7,17 @@ and direct HTTP for public endpoints (market data, order books).
 """
 
 import time
+import sys
 import requests
+
+# Shim: py-clob-client expects 'eip712_structs' but some installs only have
+# 'poly_eip712_structs'.  Map the latter into sys.modules so the import works.
+if "eip712_structs" not in sys.modules:
+    try:
+        import poly_eip712_structs as _eip712
+        sys.modules["eip712_structs"] = _eip712
+    except ImportError:
+        pass
 from typing import Optional
 from config.settings import (
     CLOB_API_URL, GAMMA_API_URL,
