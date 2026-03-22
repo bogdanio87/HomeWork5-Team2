@@ -120,7 +120,7 @@ class PolymarketAPI:
 
                 log.info("Authenticated CLOB client initialized (py-clob-client)")
             except Exception as e:
-                log.warning(f"Could not initialize CLOB client: {e}")
+                log.error(f"Could not initialize CLOB client: {e}", exc_info=True)
                 self._clob_client = None
         else:
             log.warning("No valid PRIVATE_KEY — orders will fail. "
