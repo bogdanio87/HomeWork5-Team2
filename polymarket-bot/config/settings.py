@@ -49,7 +49,7 @@ RISK_PROFILES = {
     "moderate": {
         "max_position_pct": 0.10,
         "max_open_positions": 5,
-        "min_edge": 0.02,
+        "min_edge": 0.01,
         "stop_loss": 0.08,
         "take_profit": 0.25,
         "kelly_fraction": 0.50,
