@@ -60,12 +60,11 @@ class PolymarketAPI:
                     """Route py-clob-client HTTP calls through our proxied session."""
                     if headers is None:
                         headers = {}
-                    headers.update({
-                        "User-Agent": "py_clob_client",
-                        "Accept": "*/*",
-                        "Connection": "keep-alive",
-                        "Content-Type": "application/json",
-                    })
+                    # Only set defaults — do NOT overwrite auth headers
+                    headers.setdefault("User-Agent", "py_clob_client")
+                    headers.setdefault("Accept", "*/*")
+                    headers.setdefault("Connection", "keep-alive")
+                    headers.setdefault("Content-Type", "application/json")
                     if isinstance(data, str):
                         resp = _session.request(
                             method, endpoint, headers=headers,
