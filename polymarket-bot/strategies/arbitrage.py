@@ -174,26 +174,32 @@ class ArbitrageStrategy:
             })
 
         elif opportunity.get("action") == "sell_overpriced":
-            sell_token = opportunity.get("sell_token_id") or (
-                opportunity["yes_token_id"]
-                if opportunity.get("sell_side") == "YES"
-                else opportunity.get("no_token_id", "")
-            )
-            # Use the correct price for the side being sold
-            if opportunity.get("sell_price"):
-                sell_price = opportunity["sell_price"]
-            elif opportunity.get("sell_side") == "YES":
-                sell_price = opportunity.get("yes_price", 0)
+            # Instead of selling the overpriced token (blocked on Polymarket
+            # without inventory), buy the underpriced complementary token.
+            if opportunity.get("sell_side") == "YES":
+                # YES is overpriced → buy NO (it's underpriced)
+                buy_token = opportunity.get("no_token_id", "")
+                buy_price = opportunity.get("no_price", 0)
             else:
-                sell_price = opportunity.get("no_price", 0)
-            size = int(max_position / sell_price) if sell_price > 0 else 0
+                # NO is overpriced → buy YES (it's underpriced)
+                buy_token = opportunity.get("yes_token_id", "")
+                buy_price = opportunity.get("yes_price", 0)
 
-            if size >= 1 and sell_token:
+            # For multi-outcome markets, buy the cheapest token
+            if opportunity["type"] == "multi_arbitrage":
+                tokens = opportunity.get("tokens", [])
+                cheapest = min(tokens, key=lambda t: float(t.get("price", 999)))
+                buy_token = cheapest.get("token_id", "")
+                buy_price = float(cheapest.get("price", 0))
+
+            size = int(max_position / buy_price) if buy_price > 0 else 0
+
+            if size >= 1 and buy_token:
                 orders.append({
-                    "token_id": sell_token,
-                    "price": sell_price,
+                    "token_id": buy_token,
+                    "price": min(buy_price * 1.005, 0.99),
                     "size": size,
-                    "side": "SELL",
+                    "side": "BUY",
                     "type": "GTC",
                     "strategy": "arbitrage",
                 })

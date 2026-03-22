@@ -153,16 +153,14 @@ class MomentumStrategy:
         price = signal["current_price"]
         direction = signal["direction"]
 
-        # Position sizing based on Kelly criterion
-        win_rate = 0.5 + (signal["strength"] * 0.15)  # Estimated win rate
-        avg_win = signal["strength"] * self.risk["take_profit"]
-        avg_loss = self.risk["stop_loss"]
+        # Position sizing: scale linearly with signal strength
+        # Kelly criterion is too conservative for low-strength signals
+        # (returns 0 shares when strength < ~0.27), so use strength-based sizing
+        strength = signal["strength"]
+        position_fraction = strength * self.risk["kelly_fraction"]
+        position_fraction = max(position_fraction, 0.05)  # Minimum 5% of max position
 
-        kelly = (win_rate * avg_win - (1 - win_rate) * avg_loss) / avg_win if avg_win > 0 else 0
-        kelly = max(0, min(kelly, 1.0))
-        kelly_adjusted = kelly * self.risk["kelly_fraction"]
-
-        position_size = min(max_position, available_balance * kelly_adjusted)
+        position_size = min(max_position, available_balance * position_fraction)
         num_shares = int(position_size / price) if price > 0 else 0
 
         if num_shares < 1:
