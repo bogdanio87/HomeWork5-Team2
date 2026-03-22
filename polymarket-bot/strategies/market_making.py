@@ -93,7 +93,11 @@ class MarketMakingStrategy:
         return opportunity
 
     def scan(self, markets: list[dict]) -> list[dict]:
-        """Scan markets for market-making opportunities."""
+        """Scan markets for market-making opportunities.
+
+        For binary markets only scan the first token (complement is
+        derived automatically), cutting API calls in half.
+        """
         opportunities = []
 
         for market in markets:
@@ -104,7 +108,10 @@ class MarketMakingStrategy:
                 complement_map[tokens[0].get("token_id", "")] = tokens[1].get("token_id", "")
                 complement_map[tokens[1].get("token_id", "")] = tokens[0].get("token_id", "")
 
-            for token in tokens:
+            # For binary markets scan only the first token
+            candidates = tokens if len(tokens) != 2 else tokens[:1]
+
+            for token in candidates:
                 token_id = token.get("token_id", "")
                 price = float(token.get("price", 0))
 

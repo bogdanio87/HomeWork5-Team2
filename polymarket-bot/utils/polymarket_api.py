@@ -36,16 +36,52 @@ class PolymarketAPI:
         self.session.headers.update({
             "Content-Type": "application/json",
         })
-        self._rate_limit_delay = 0.2  # 200ms between requests
+        self._rate_limit_delay = 0.05  # 50ms between requests
 
-        # Configure proxy for py-clob-client's internal httpx client
+        # py-clob-client uses httpx internally, but httpx proxy support
+        # is incompatible with many HTTP proxies (ConnectTimeout).
+        # Monkey-patch its HTTP helpers to use our requests.Session instead.
         if PROXY_URL:
             try:
-                import httpx
                 import py_clob_client.http_helpers.helpers as _helpers
-                _helpers._http_client = httpx.Client(proxy=PROXY_URL)
+                _session = self.session  # capture for closure
+
+                def _patched_request(endpoint, method, headers=None, data=None):
+                    """Route py-clob-client HTTP calls through our proxied session."""
+                    if headers is None:
+                        headers = {}
+                    headers.update({
+                        "User-Agent": "py_clob_client",
+                        "Accept": "*/*",
+                        "Connection": "keep-alive",
+                        "Content-Type": "application/json",
+                    })
+                    if isinstance(data, str):
+                        resp = _session.request(
+                            method, endpoint, headers=headers,
+                            data=data.encode("utf-8"), timeout=30,
+                        )
+                    else:
+                        resp = _session.request(
+                            method, endpoint, headers=headers,
+                            json=data, timeout=30,
+                        )
+                    if resp.status_code != 200:
+                        from py_clob_client.exceptions import PolyApiException
+                        raise PolyApiException(resp)
+                    try:
+                        return resp.json()
+                    except ValueError:
+                        return resp.text
+
+                _helpers.request = _patched_request
+                _helpers.post = lambda ep, headers=None, data=None: _patched_request(ep, "POST", headers, data)
+                _helpers.get = lambda ep, headers=None, data=None: _patched_request(ep, "GET", headers, data)
+                _helpers.delete = lambda ep, headers=None, data=None: _patched_request(ep, "DELETE", headers, data)
+                _helpers.put = lambda ep, headers=None, data=None: _patched_request(ep, "PUT", headers, data)
+                log.info("Patched py-clob-client to use proxied requests.Session")
             except Exception as e:
-                log.warning(f"Could not set proxy for CLOB client: {e}")
+                log.warning(f"Could not patch py-clob-client HTTP helpers: {e}")
 
         # Initialize py-clob-client for authenticated order operations
         self._clob_client = None
@@ -255,6 +291,9 @@ class PolymarketAPI:
             return result
         except Exception as e:
             log.error(f"Failed to place order: {e}")
+            # Log full traceback for debugging connection issues
+            import traceback
+            log.debug(traceback.format_exc())
             return None
 
     def cancel_order(self, order_id: str) -> Optional[dict]:

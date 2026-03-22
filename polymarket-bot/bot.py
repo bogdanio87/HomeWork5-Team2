@@ -58,14 +58,16 @@ class PolymarketBot:
         log.info(f"Risk profile: {RISK}")
 
     def scan_markets(self):
-        """Scan all active markets for trading opportunities."""
+        """Scan active markets for trading opportunities and execute immediately."""
         log.info("Scanning markets for opportunities...")
 
-        # Fetch active, high-volume markets
-        markets = self.api.find_high_volume_markets(min_volume=1000, limit=50)
+        # Fetch a small batch of high-volume markets to keep scan fast.
+        # Each token needs ~3 API calls, so 10 markets × 2 tokens × 3 calls
+        # ≈ 60 calls — about 1 minute through a proxy.
+        markets = self.api.find_high_volume_markets(min_volume=1000, limit=10)
         if not markets:
             log.warning("No high-volume markets found, fetching all active markets")
-            markets = self.api.get_markets(limit=30, active=True)
+            markets = self.api.get_markets(limit=10, active=True)
 
         if not markets:
             log.error("Failed to fetch any markets")

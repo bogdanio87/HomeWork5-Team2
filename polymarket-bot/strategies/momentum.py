@@ -125,12 +125,21 @@ class MomentumStrategy:
         return signal
 
     def scan(self, markets: list[dict]) -> list[dict]:
-        """Scan markets for momentum signals."""
+        """Scan markets for momentum signals.
+
+        For binary markets (2 tokens), only scan the first eligible token
+        to halve the number of API calls.  The complement is already
+        captured in the signal for DOWN-direction trades.
+        """
         signals = []
 
         for market in markets:
             tokens = market.get("tokens", [])
-            for token in tokens:
+
+            # For binary markets, pick the best candidate token (closest to 0.5)
+            candidates = tokens if len(tokens) != 2 else tokens[:1]
+
+            for token in candidates:
                 token_id = token.get("token_id", "")
                 price = float(token.get("price", 0))
 
