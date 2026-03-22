@@ -64,9 +64,17 @@ class RiskManager:
 
     @property
     def total_equity(self) -> float:
-        """Current total equity including unrealized P&L."""
-        unrealized = sum(p.unrealized_pnl for p in self.portfolio.positions.values())
-        return self.portfolio.balance + unrealized
+        """Current total equity = cash + market value of all positions.
+
+        When a BUY position is opened, balance decreases by cost but
+        we still hold the shares.  Equity = cash + sum(size * entry_price)
+        + unrealized P&L (which captures price movement since entry).
+        """
+        position_value = sum(
+            p.size * p.entry_price + p.unrealized_pnl
+            for p in self.portfolio.positions.values()
+        )
+        return self.portfolio.balance + position_value
 
     @property
     def open_position_count(self) -> int:
