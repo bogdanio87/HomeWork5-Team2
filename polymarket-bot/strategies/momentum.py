@@ -85,7 +85,7 @@ class MomentumStrategy:
 
         strength = (velocity_score * 0.4 + volume_score * 0.3 + trend_score * 0.3)
 
-        if strength < 0.25:
+        if strength < 0.15:
             return None
 
         direction = "UP" if price_velocity > 0 else "DOWN"

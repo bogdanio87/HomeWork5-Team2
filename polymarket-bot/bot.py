@@ -62,7 +62,7 @@ class PolymarketBot:
         log.info("Scanning markets for opportunities...")
 
         # Fetch active, high-volume markets
-        markets = self.api.find_high_volume_markets(min_volume=5000, limit=50)
+        markets = self.api.find_high_volume_markets(min_volume=1000, limit=50)
         if not markets:
             log.warning("No high-volume markets found, fetching all active markets")
             markets = self.api.get_markets(limit=30, active=True)

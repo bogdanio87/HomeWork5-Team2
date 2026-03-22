@@ -20,7 +20,7 @@ class MarketMakingStrategy:
     def __init__(self, api, risk_config: dict):
         self.api = api
         self.risk = risk_config
-        self.min_spread = 0.015  # Minimum 1.5% spread to be profitable
+        self.min_spread = 0.008  # Minimum 0.8% spread to be profitable
         self.max_inventory_imbalance = 0.7  # Max 70% of position on one side
         self.order_layers = 3  # Number of price levels to quote
 
