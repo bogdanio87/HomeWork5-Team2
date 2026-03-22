@@ -20,7 +20,7 @@ class MarketMakingStrategy:
     def __init__(self, api, risk_config: dict):
         self.api = api
         self.risk = risk_config
-        self.min_spread = 0.03  # Minimum 3% spread to be profitable
+        self.min_spread = 0.015  # Minimum 1.5% spread to be profitable
         self.max_inventory_imbalance = 0.7  # Max 70% of position on one side
         self.order_layers = 3  # Number of price levels to quote
 
@@ -29,37 +29,47 @@ class MarketMakingStrategy:
         """
         Analyze the current spread for market-making viability.
 
-        Returns opportunity dict if spread is wide enough to profit.
+        Uses the /spread and /midpoint endpoints (public, no auth needed)
+        combined with order book data filtered around midpoint.
         """
-        book = self.api.get_order_book(token_id)
-        if not book:
+        # Use public /spread endpoint for reliable spread data
+        spread_data = self.api.get_spread(token_id)
+        midpoint_val = self.api.get_midpoint(token_id)
+
+        if not spread_data or midpoint_val is None:
             return None
 
-        bids = book.get("bids", [])
-        asks = book.get("asks", [])
+        spread = float(spread_data.get("spread", 0))
+        midpoint = midpoint_val
 
-        if not bids or not asks:
+        if midpoint <= 0 or spread <= 0:
             return None
 
-        best_bid = float(bids[0].get("price", 0))
-        best_ask = float(asks[0].get("price", 0))
-
-        if best_bid <= 0 or best_ask <= 0 or best_ask <= best_bid:
-            return None
-
-        spread = best_ask - best_bid
-        spread_pct = spread / best_ask
+        spread_pct = spread / midpoint if midpoint > 0 else 0
 
         if spread_pct < self.min_spread:
             return None
 
-        midpoint = (best_bid + best_ask) / 2
+        best_bid = midpoint - spread / 2
+        best_ask = midpoint + spread / 2
 
-        # Calculate book depth
-        bid_depth = sum(float(b.get("size", 0)) for b in bids[:5])
-        ask_depth = sum(float(a.get("size", 0)) for a in asks[:5])
-        total_depth = bid_depth + ask_depth
-        depth_imbalance = (bid_depth - ask_depth) / total_depth if total_depth > 0 else 0
+        # Try to get book depth info (order book is public)
+        bid_depth = 0
+        ask_depth = 0
+        depth_imbalance = 0
+        book = self.api.get_order_book(token_id)
+        if book:
+            bids = book.get("bids", [])
+            asks = book.get("asks", [])
+            # Filter to orders near midpoint (within 20% of midpoint)
+            range_low = midpoint * 0.8
+            range_high = midpoint * 1.2
+            near_bids = [b for b in bids if float(b.get("price", 0)) >= range_low]
+            near_asks = [a for a in asks if float(a.get("price", 0)) <= range_high]
+            bid_depth = sum(float(b.get("size", 0)) for b in near_bids[:5])
+            ask_depth = sum(float(a.get("size", 0)) for a in near_asks[:5])
+            total_depth = bid_depth + ask_depth
+            depth_imbalance = (bid_depth - ask_depth) / total_depth if total_depth > 0 else 0
 
         opportunity = {
             "type": "market_making",
@@ -74,11 +84,11 @@ class MarketMakingStrategy:
             "bid_depth": bid_depth,
             "ask_depth": ask_depth,
             "depth_imbalance": depth_imbalance,
-            "estimated_profit_per_round": spread * 0.5,  # Conservative estimate
+            "estimated_profit_per_round": spread * 0.5,
         }
 
         log.info(f"[MM] Spread opportunity: {market_info.get('question', '')[:50]} "
-                 f"bid={best_bid:.3f} ask={best_ask:.3f} spread={spread_pct:.1%}")
+                 f"mid={midpoint:.3f} spread={spread:.3f} ({spread_pct:.1%})")
 
         return opportunity
 

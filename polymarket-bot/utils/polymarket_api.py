@@ -1,13 +1,23 @@
 """
 Polymarket API client for interacting with CLOB and Gamma APIs.
 Handles market data retrieval, order placement, and position management.
+
+Uses py-clob-client for authenticated operations (order placement)
+and direct HTTP for public endpoints (market data, order books).
 """
 
 import time
 import requests
 from typing import Optional
-from config.settings import CLOB_API_URL, GAMMA_API_URL, POLY_API_KEY, POLY_API_SECRET, POLY_PASSPHRASE, PROXY_URL
+from config.settings import (
+    CLOB_API_URL, GAMMA_API_URL,
+    POLY_API_KEY, POLY_API_SECRET, POLY_PASSPHRASE, PRIVATE_KEY,
+    PROXY_URL,
+)
 from utils.logger import log
+
+# Polygon mainnet chain ID
+POLYGON_CHAIN_ID = 137
 
 
 class PolymarketAPI:
@@ -26,13 +36,41 @@ class PolymarketAPI:
         self.session.headers.update({
             "Content-Type": "application/json",
         })
-        if POLY_API_KEY:
-            self.session.headers.update({
-                "POLY_API_KEY": POLY_API_KEY,
-                "POLY_API_SECRET": POLY_API_SECRET,
-                "POLY_PASSPHRASE": POLY_PASSPHRASE,
-            })
         self._rate_limit_delay = 0.2  # 200ms between requests
+
+        # Initialize py-clob-client for authenticated order operations
+        self._clob_client = None
+        if PRIVATE_KEY and not PRIVATE_KEY.startswith("your_"):
+            try:
+                from py_clob_client.client import ClobClient
+                from py_clob_client.clob_types import ApiCreds
+
+                self._clob_client = ClobClient(
+                    CLOB_API_URL,
+                    chain_id=POLYGON_CHAIN_ID,
+                    key=PRIVATE_KEY,
+                )
+
+                # If we have API creds, set them; otherwise derive them
+                if (POLY_API_KEY and not POLY_API_KEY.startswith("your_")
+                        and POLY_API_SECRET and POLY_PASSPHRASE):
+                    creds = ApiCreds(
+                        api_key=POLY_API_KEY,
+                        api_secret=POLY_API_SECRET,
+                        api_passphrase=POLY_PASSPHRASE,
+                    )
+                    self._clob_client.set_api_creds(creds)
+                else:
+                    creds = self._clob_client.create_or_derive_api_creds()
+                    self._clob_client.set_api_creds(creds)
+
+                log.info("Authenticated CLOB client initialized (py-clob-client)")
+            except Exception as e:
+                log.warning(f"Could not initialize CLOB client: {e}")
+                self._clob_client = None
+        else:
+            log.warning("No valid PRIVATE_KEY — orders will fail. "
+                        "Set PRIVATE_KEY in .env to enable trading.")
 
     def _request(self, method: str, url: str, **kwargs) -> Optional[dict]:
         """Make a rate-limited API request with retry logic."""
@@ -56,7 +94,7 @@ class PolymarketAPI:
     # ── Market Data ──────────────────────────────────────────
 
     def get_markets(self, limit: int = 100, active: bool = True,
-                    closed: bool = False, order: str = "volume") -> list[dict]:
+                    closed: bool = False, order: str = "-volume") -> list[dict]:
         """Fetch markets from Gamma API with filtering."""
         params = {
             "limit": limit,
@@ -65,7 +103,51 @@ class PolymarketAPI:
             "order": order,
         }
         data = self._request("GET", f"{self.gamma_url}/markets", params=params)
-        return data if isinstance(data, list) else []
+        if not isinstance(data, list):
+            return []
+
+        # Gamma API returns prices in outcomePrices/clobTokenIds fields,
+        # not in a nested 'tokens' list. Normalize into the format
+        # that strategies expect: tokens=[{outcome, price, token_id}, ...]
+        for market in data:
+            tokens = market.get("tokens")
+            if tokens:
+                continue  # already has token data
+
+            outcomes = market.get("outcomes") or []
+            raw_prices = market.get("outcomePrices") or []
+            raw_ids = market.get("clobTokenIds") or []
+
+            # Parse JSON strings if needed (API returns these as strings)
+            import json as _json
+            if isinstance(outcomes, str):
+                try:
+                    outcomes = _json.loads(outcomes)
+                except (ValueError, TypeError):
+                    outcomes = []
+            if isinstance(raw_prices, str):
+                try:
+                    raw_prices = _json.loads(raw_prices)
+                except (ValueError, TypeError):
+                    raw_prices = []
+            if isinstance(raw_ids, str):
+                try:
+                    raw_ids = _json.loads(raw_ids)
+                except (ValueError, TypeError):
+                    raw_ids = []
+
+            built_tokens = []
+            for i, outcome in enumerate(outcomes):
+                price = float(raw_prices[i]) if i < len(raw_prices) else 0
+                token_id = raw_ids[i] if i < len(raw_ids) else ""
+                built_tokens.append({
+                    "outcome": outcome,
+                    "price": price,
+                    "token_id": token_id,
+                })
+            market["tokens"] = built_tokens
+
+        return data
 
     def get_market(self, condition_id: str) -> Optional[dict]:
         """Fetch a single market by condition ID."""
@@ -114,7 +196,7 @@ class PolymarketAPI:
         return data if isinstance(data, list) else []
 
     def place_order(self, order: dict) -> Optional[dict]:
-        """Place an order on Polymarket CLOB.
+        """Place an order on Polymarket CLOB using py-clob-client.
 
         Order dict should contain:
         - token_id: str
@@ -123,18 +205,60 @@ class PolymarketAPI:
         - side: 'BUY' or 'SELL'
         - type: 'GTC' (Good Till Cancelled) or 'FOK' (Fill or Kill)
         """
-        log.info(f"Placing order: {order['side']} {order['size']} @ {order['price']} "
+        log.info(f"Placing order: {order['side']} {order['size']} @ {order['price']:.4f} "
                  f"for token {order['token_id'][:16]}...")
-        return self._request("POST", f"{self.clob_url}/order", json=order)
+
+        if not self._clob_client:
+            log.error("Cannot place order — no authenticated CLOB client. "
+                      "Set PRIVATE_KEY in .env")
+            return None
+
+        try:
+            from py_clob_client.clob_types import OrderArgs
+            from py_clob_client.order_builder.constants import BUY, SELL
+
+            side = BUY if order["side"].upper() == "BUY" else SELL
+
+            # Round price to valid tick size (Polymarket uses 0.001 ticks)
+            price = round(order["price"], 3)
+            # Ensure price is within valid range
+            price = max(0.001, min(0.999, price))
+
+            order_args = OrderArgs(
+                token_id=order["token_id"],
+                price=price,
+                size=float(order["size"]),
+                side=side,
+            )
+
+            result = self._clob_client.create_and_post_order(order_args)
+            if result:
+                log.info(f"Order placed: {result}")
+            return result
+        except Exception as e:
+            log.error(f"Failed to place order: {e}")
+            return None
 
     def cancel_order(self, order_id: str) -> Optional[dict]:
         """Cancel an existing order."""
         log.info(f"Cancelling order {order_id}")
+        if self._clob_client:
+            try:
+                return self._clob_client.cancel_orders([order_id])
+            except Exception as e:
+                log.error(f"Failed to cancel order: {e}")
+                return None
         return self._request("DELETE", f"{self.clob_url}/order/{order_id}")
 
     def cancel_all_orders(self) -> Optional[dict]:
         """Cancel all open orders."""
         log.info("Cancelling all open orders")
+        if self._clob_client:
+            try:
+                return self._clob_client.cancel_orders()
+            except Exception as e:
+                log.error(f"Failed to cancel all orders: {e}")
+                return None
         return self._request("DELETE", f"{self.clob_url}/orders")
 
     def get_open_orders(self) -> list[dict]:
@@ -176,7 +300,7 @@ class PolymarketAPI:
     def find_high_volume_markets(self, min_volume: float = 10000,
                                   limit: int = 50) -> list[dict]:
         """Find active markets with high trading volume."""
-        markets = self.get_markets(limit=limit, order="volume")
+        markets = self.get_markets(limit=limit, order="-volume")
         return [m for m in markets
                 if float(m.get("volume", 0)) >= min_volume
                 and m.get("active", False)]

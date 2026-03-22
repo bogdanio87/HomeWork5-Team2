@@ -25,64 +25,58 @@ class MomentumStrategy:
         self.min_edge = risk_config["min_edge"]
         self.lookback_trades = 20
         self.volume_surge_multiplier = 2.5
-        self.min_price_velocity = 0.02  # 2% move minimum
+        self.min_price_velocity = 0.005  # 0.5% move minimum
 
     def analyze_momentum(self, token_id: str,
                           market_info: dict) -> Optional[dict]:
         """
         Analyze price momentum for a single token.
 
-        Returns a signal dict if momentum is strong enough.
+        Uses midpoint and last-trade-price (public endpoints) to detect
+        price deviation that indicates momentum.
         """
-        trades = self.api.get_trades(token_id, limit=self.lookback_trades)
-        if len(trades) < 5:
+        # Use public endpoints instead of /trades (requires auth)
+        midpoint = self.api.get_midpoint(token_id)
+        last_price = self.api.get_last_trade_price(token_id)
+        spread_data = self.api.get_spread(token_id)
+
+        if midpoint is None or last_price is None:
             return None
 
-        # Sort trades by timestamp descending (newest first)
-        for trade in trades:
-            ts = trade.get("timestamp", 0)
-            if isinstance(ts, str):
-                trade["_ts"] = int(ts) if ts.isdigit() else 0
-            else:
-                trade["_ts"] = int(ts)
-        trades.sort(key=lambda t: t["_ts"], reverse=True)
-
-        prices = []
-        volumes = []
-        timestamps = []
-
-        for trade in trades:
-            prices.append(float(trade.get("price", 0)))
-            volumes.append(float(trade.get("size", 0)))
-            timestamps.append(trade["_ts"])
-
-        if not prices or max(prices) == 0:
+        if midpoint <= 0 or last_price <= 0:
             return None
 
-        current_price = prices[0]  # Most recent trade
-        oldest_price = prices[-1]
+        # Use token's listed price as the "reference" price
+        listed_price = float(market_info.get("tokens", [{}])[0].get("price", 0))
+        for token in market_info.get("tokens", []):
+            if token.get("token_id", "") == token_id:
+                listed_price = float(token.get("price", 0))
+                break
 
-        # Price velocity
-        price_change = current_price - oldest_price
-        price_velocity = price_change / oldest_price if oldest_price > 0 else 0
+        if listed_price <= 0:
+            listed_price = midpoint
 
-        # Volume analysis
-        recent_volume = sum(volumes[:5]) if len(volumes) >= 5 else sum(volumes)
-        older_volume = sum(volumes[5:]) if len(volumes) > 5 else recent_volume
-        avg_older = older_volume / max(len(volumes) - 5, 1)
-        avg_recent = recent_volume / min(5, len(volumes))
-        volume_ratio = avg_recent / avg_older if avg_older > 0 else 1.0
+        # Price velocity: difference between last trade and listed/midpoint price
+        price_velocity = (last_price - listed_price) / listed_price if listed_price > 0 else 0
 
-        # Trend consistency — how many recent trades moved in same direction
-        up_moves = sum(1 for i in range(len(prices) - 1) if prices[i] > prices[i + 1])
-        down_moves = sum(1 for i in range(len(prices) - 1) if prices[i] < prices[i + 1])
-        total_moves = up_moves + down_moves
-        trend_strength = max(up_moves, down_moves) / total_moves if total_moves > 0 else 0
+        # Also check midpoint vs listed price for broader momentum
+        mid_velocity = (midpoint - listed_price) / listed_price if listed_price > 0 else 0
 
-        # Check if momentum is strong enough
+        # Use the stronger signal
+        if abs(mid_velocity) > abs(price_velocity):
+            price_velocity = mid_velocity
+
         abs_velocity = abs(price_velocity)
         if abs_velocity < self.min_price_velocity:
             return None
+
+        # Spread as a proxy for volume/activity
+        spread = float(spread_data.get("spread", 0.1)) if spread_data else 0.1
+        # Tighter spread = more active market = higher volume score
+        volume_ratio = max(0.01 / spread, 0.5) if spread > 0 else 1.0
+
+        # Trend score based on direction consistency
+        trend_strength = 0.6 if abs_velocity > self.min_price_velocity * 2 else 0.4
 
         # Strength score (0-1)
         velocity_score = min(abs_velocity / 0.10, 1.0)
@@ -91,7 +85,7 @@ class MomentumStrategy:
 
         strength = (velocity_score * 0.4 + volume_score * 0.3 + trend_score * 0.3)
 
-        if strength < 0.4:
+        if strength < 0.25:
             return None
 
         direction = "UP" if price_velocity > 0 else "DOWN"
@@ -114,7 +108,7 @@ class MomentumStrategy:
             "complement_price": complement_price,
             "market": market_info.get("question", "Unknown"),
             "condition_id": market_info.get("condition_id", ""),
-            "current_price": current_price,
+            "current_price": midpoint,
             "price_velocity": price_velocity,
             "volume_ratio": volume_ratio,
             "trend_strength": trend_strength,
@@ -126,8 +120,7 @@ class MomentumStrategy:
         }
 
         log.info(f"[MOM] {direction} signal on '{market_info.get('question', '')[:50]}': "
-                 f"velocity={price_velocity:.3f}, vol_ratio={volume_ratio:.1f}, "
-                 f"strength={strength:.2f}")
+                 f"velocity={price_velocity:.3f}, strength={strength:.2f}")
 
         return signal
 
