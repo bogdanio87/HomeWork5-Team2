@@ -38,6 +38,15 @@ class PolymarketAPI:
         })
         self._rate_limit_delay = 0.2  # 200ms between requests
 
+        # Configure proxy for py-clob-client's internal httpx client
+        if PROXY_URL:
+            try:
+                import httpx
+                import py_clob_client.http_helpers.helpers as _helpers
+                _helpers._http_client = httpx.Client(proxy=PROXY_URL)
+            except Exception as e:
+                log.warning(f"Could not set proxy for CLOB client: {e}")
+
         # Initialize py-clob-client for authenticated order operations
         self._clob_client = None
         if PRIVATE_KEY and not PRIVATE_KEY.startswith("your_"):
@@ -45,10 +54,19 @@ class PolymarketAPI:
                 from py_clob_client.client import ClobClient
                 from py_clob_client.clob_types import ApiCreds
 
+                # Convert mnemonic phrase to hex private key if needed
+                hex_key = PRIVATE_KEY
+                if " " in PRIVATE_KEY:
+                    from eth_account import Account
+                    Account.enable_unaudited_hdwallet_features()
+                    acct = Account.from_mnemonic(PRIVATE_KEY)
+                    hex_key = acct.key.hex()
+                    log.info(f"Wallet address: {acct.address}")
+
                 self._clob_client = ClobClient(
                     CLOB_API_URL,
                     chain_id=POLYGON_CHAIN_ID,
-                    key=PRIVATE_KEY,
+                    key=hex_key,
                 )
 
                 # If we have API creds, set them; otherwise derive them
