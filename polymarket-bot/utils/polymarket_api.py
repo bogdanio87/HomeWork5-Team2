@@ -109,6 +109,25 @@ class PolymarketAPI:
                 _helpers.get = lambda ep, headers=None, data=None: _patched_request(ep, "GET", headers, data)
                 _helpers.delete = lambda ep, headers=None, data=None: _patched_request(ep, "DELETE", headers, data)
                 _helpers.put = lambda ep, headers=None, data=None: _patched_request(ep, "PUT", headers, data)
+
+                # CRITICAL: client.py imports post/get/delete by value at
+                # import time, so patching helpers alone is not enough —
+                # we must also patch the references held by client.py.
+                try:
+                    import py_clob_client.client as _client_mod
+                    _client_mod.post = _helpers.post
+                    _client_mod.get = _helpers.get
+                    _client_mod.delete = _helpers.delete
+                except Exception:
+                    pass
+                try:
+                    import py_clob_client.rfq.rfq_client as _rfq_mod
+                    _rfq_mod.post = _helpers.post
+                    _rfq_mod.get = _helpers.get
+                    _rfq_mod.delete = _helpers.delete
+                except Exception:
+                    pass
+
                 log.info("Patched py-clob-client to use requests.Session")
             except Exception as e:
                 log.warning(f"Could not patch py-clob-client HTTP helpers: {e}")
