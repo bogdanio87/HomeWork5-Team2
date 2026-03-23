@@ -6,6 +6,7 @@ Uses py-clob-client for authenticated operations (order placement)
 and direct HTTP for public endpoints (market data, order books).
 """
 
+import os
 import time
 import sys
 import requests
@@ -38,10 +39,15 @@ class PolymarketAPI:
         self.gamma_url = GAMMA_API_URL
         self.session = requests.Session()
         if PROXY_URL:
+            # Clear any system/environment proxy settings so our proxy takes effect
+            for var in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY",
+                        "no_proxy", "NO_PROXY"):
+                os.environ.pop(var, None)
             self.session.proxies = {
                 "http": PROXY_URL,
                 "https": PROXY_URL,
             }
+            self.session.trust_env = False  # Ignore env proxy vars
             log.info(f"Using proxy: {PROXY_URL.split('@')[-1] if '@' in PROXY_URL else PROXY_URL}")
         self.session.headers.update({
             "Content-Type": "application/json",
