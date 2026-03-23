@@ -10,12 +10,14 @@ POLY_PASSPHRASE = os.getenv("POLY_PASSPHRASE", "")
 PRIVATE_KEY = os.getenv("PRIVATE_KEY", "")
 
 # Proxy configuration (for geo-restricted access)
+# Set USE_PROXY=false to disable proxy and connect directly
+USE_PROXY = os.getenv("USE_PROXY", "true").lower() in ("true", "1", "yes")
 PROXY_HOST = os.getenv("PROXY_HOST", "")
 PROXY_PORT = os.getenv("PROXY_PORT", "")
 PROXY_USER = os.getenv("PROXY_USER", "")
 PROXY_PASS = os.getenv("PROXY_PASS", "")
 PROXY_URL = ""
-if PROXY_HOST and PROXY_PORT:
+if USE_PROXY and PROXY_HOST and PROXY_PORT:
     if PROXY_USER and PROXY_PASS:
         PROXY_URL = f"http://{PROXY_USER}:{PROXY_PASS}@{PROXY_HOST}:{PROXY_PORT}"
     else:

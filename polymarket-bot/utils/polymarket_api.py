@@ -53,6 +53,7 @@ class PolymarketAPI:
             "Content-Type": "application/json",
         })
         self._rate_limit_delay = 0.05  # 50ms between requests
+        self._proxy_disabled = False
 
         # py-clob-client uses httpx internally, which can have compatibility
         # issues with some environments. Monkey-patch its HTTP helpers to use
@@ -61,6 +62,8 @@ class PolymarketAPI:
             try:
                 import py_clob_client.http_helpers.helpers as _helpers
                 _session = self.session  # capture for closure
+
+                _api = self  # capture for closure
 
                 def _patched_request(endpoint, method, headers=None, data=None):
                     """Route py-clob-client HTTP calls through our proxied session."""
@@ -71,16 +74,32 @@ class PolymarketAPI:
                     headers.setdefault("Accept", "*/*")
                     headers.setdefault("Connection", "keep-alive")
                     headers.setdefault("Content-Type", "application/json")
-                    if isinstance(data, str):
-                        resp = _session.request(
-                            method, endpoint, headers=headers,
-                            data=data.encode("utf-8"), timeout=30,
-                        )
-                    else:
-                        resp = _session.request(
-                            method, endpoint, headers=headers,
-                            json=data, timeout=30,
-                        )
+                    try:
+                        if isinstance(data, str):
+                            resp = _session.request(
+                                method, endpoint, headers=headers,
+                                data=data.encode("utf-8"), timeout=30,
+                            )
+                        else:
+                            resp = _session.request(
+                                method, endpoint, headers=headers,
+                                json=data, timeout=30,
+                            )
+                    except requests.exceptions.ProxyError:
+                        _api._disable_proxy()
+                        if isinstance(data, str):
+                            resp = _session.request(
+                                method, endpoint, headers=headers,
+                                data=data.encode("utf-8"), timeout=30,
+                            )
+                        else:
+                            resp = _session.request(
+                                method, endpoint, headers=headers,
+                                json=data, timeout=30,
+                            )
+                    if resp.status_code == 407 and not _api._proxy_disabled:
+                        _api._disable_proxy()
+                        return _patched_request(endpoint, method, headers, data)
                     if resp.status_code != 200:
                         from py_clob_client.exceptions import PolyApiException
                         raise PolyApiException(resp)
@@ -130,8 +149,15 @@ class PolymarketAPI:
                     )
                     self._clob_client.set_api_creds(creds)
                 else:
-                    creds = self._clob_client.create_or_derive_api_creds()
-                    self._clob_client.set_api_creds(creds)
+                    try:
+                        creds = self._clob_client.create_or_derive_api_creds()
+                        self._clob_client.set_api_creds(creds)
+                    except (requests.exceptions.ProxyError, requests.exceptions.ConnectionError) as e:
+                        log.warning(f"Proxy error during API cred derivation: {e}")
+                        self._disable_proxy()
+                        # Retry without proxy
+                        creds = self._clob_client.create_or_derive_api_creds()
+                        self._clob_client.set_api_creds(creds)
 
                 log.info("Authenticated CLOB client initialized (py-clob-client)")
             except Exception as e:
@@ -141,12 +167,24 @@ class PolymarketAPI:
             log.warning("No valid PRIVATE_KEY — orders will fail. "
                         "Set PRIVATE_KEY in .env to enable trading.")
 
+    def _disable_proxy(self):
+        """Disable proxy and switch to direct connection."""
+        if self.session.proxies:
+            log.warning("Disabling proxy — switching to direct connection")
+            self.session.proxies = {}
+            self.session.trust_env = False
+            self._proxy_disabled = True
+
     def _request(self, method: str, url: str, **kwargs) -> Optional[dict]:
         """Make a rate-limited API request with retry logic."""
         for attempt in range(3):
             try:
                 time.sleep(self._rate_limit_delay)
                 resp = self.session.request(method, url, timeout=15, **kwargs)
+                if resp.status_code == 407:
+                    log.error("Proxy returned 407 Auth Required — credentials may be expired")
+                    self._disable_proxy()
+                    continue
                 if resp.status_code == 429:
                     wait = 2 ** (attempt + 1)
                     log.warning(f"Rate limited, waiting {wait}s...")
@@ -154,6 +192,10 @@ class PolymarketAPI:
                     continue
                 resp.raise_for_status()
                 return resp.json()
+            except requests.exceptions.ProxyError as e:
+                log.error(f"Proxy error (attempt {attempt + 1}): {e}")
+                self._disable_proxy()
+                continue
             except requests.exceptions.RequestException as e:
                 log.error(f"API request failed (attempt {attempt + 1}): {e}")
                 if attempt < 2:
